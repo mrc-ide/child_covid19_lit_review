@@ -1,0 +1,322 @@
+---
+title: "Literature review on COVID-19 in children"
+author: "Gina Cuomo-Dannenburg, Katy Gaythorpe, Natsuko Imai, Tara Mangal"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    fig_width: 7
+    fig_height: 5
+    fig_caption: true
+    highlight: "tango"
+    df_print: "kable"
+---
+
+
+```{r set up }
+
+ knitr::opts_chunk$set(echo = FALSE, fig.path = "figures/", 
+                       fig.ext = "png",
+                       fig.width = 12,
+                       warning = FALSE,
+                       message = FALSE)
+
+## library(orderly)
+## set the working directory to this one then...
+## orderly::orderly_develop_start()
+## orderly::orderly_develop_status()
+## orderly::orderly_develop_clean()
+
+```
+
+```{r read}
+df <- readxl::read_excel("data-files/covid_in_children_stats.xlsx",
+                         sheet = "data")
+
+df_narrative <- readxl::read_excel("data-files/covid_in_children_stats.xlsx",
+                         sheet = "narrative")
+
+covidence <- read.csv("data-files/covidence.csv",
+                      stringsAsFactors = FALSE)
+
+covidence %<>% mutate(Covidence.. = gsub("#", "", Covidence..))
+
+covidence %<>% janitor::clean_names()
+
+covidence %<>% mutate(covidence = as.numeric(covidence))
+
+QA <- readxl::read_excel("data-files/QA.xlsx", 
+                         sheet = "Suppl QA table-19092020")
+
+QA %<>% janitor::clean_names()
+
+QA %<>% select(covidence_id,  rating)
+
+
+#filter to only included studies
+df %<>% filter(covidence_id %in% covidence$covidence)
+
+#clean names
+df %<>% janitor::clean_names()
+
+
+#clean ages
+df %<>% mutate(age_min = as.numeric(age_min),
+               age_max = as.numeric(age_max),
+               size_of_cohort = as.numeric(size_of_cohort),
+               seropositive = as.numeric(seropositive),
+               asymptomatic = as.numeric(asymptomatic),
+               severe_critical = as.numeric(severe_critical),
+               number_covid_positive = as.numeric(number_covid_positive))
+
+#fill in missing ages
+df %<>% mutate(age_min = ifelse(is.na(age_min), 0, age_min),
+               age_max = ifelse(is.na(age_max), 100, age_max))
+
+
+
+#clean country
+df %<>% mutate(country = ifelse(grepl(";", country)|grepl(",", country), "Various",country))
+
+# add QA
+df %<>% left_join(QA, by = "covidence_id")
+
+df %<>% filter(!is.na(rating))
+
+df %<>% mutate(rating = factor(rating, levels = c("Poor", "Fair", "Good")))
+
+df %<>% mutate(country = toupper(country))
+
+df <- df %>%
+  mutate(start_month_year = as.Date(paste0(start_month_year, "-1")),
+         end_month_year = case_when(end_month_year %in% c("2019-12","2020-01", "2020-03", "2020-05")~
+                                      paste0(end_month_year, "-31"),
+                                    end_month_year %in% c("2020-02") ~ 
+                                      paste0(end_month_year, "-28"),
+                                    end_month_year %in% c("2020-04") ~ 
+                                      paste0(end_month_year, "-30"))) %>%
+  mutate(end_month_year = as.Date(end_month_year)) 
+
+```
+
+```{r susceptibility}
+
+mycolours <- colorRampPalette(brewer.pal(12,"Paired"))(16)
+
+df %>%
+  filter(age_max>18, number_covid_positive<size_of_cohort) %>%
+  ggplot()+
+  geom_point(aes(colour = toupper(study)),
+             alpha = 0.8, size = 4)+
+  aes(x = (age_min+age_max)/2,
+      y = number_covid_positive/size_of_cohort) +
+  #scale_y_log10()+
+  theme_minimal()+
+  scale_colour_manual(values = mycolours)+
+  labs(x = "Mean of age group", 
+       y = "Proportion SARS-CoV-2 positive", 
+       size = "Quality assessment", colour = "Study first author")+
+  theme(legend.position = "bottom")
+
+df %>%
+  filter(age_max>18, number_covid_positive<size_of_cohort) %>%
+  select(covidence_id) %>%
+  unique() %>% as.matrix() %>% as.numeric()
+```
+
+
+```{r map}
+#get world map
+world_map <- map_data("world")
+
+#plot background
+map_bg <- ggplot() +
+  geom_polygon(data = world_map, aes(x=long, y = lat, group = group), 
+               fill="grey") +
+  coord_quickmap(ylim = c(-51, 70)) +
+  theme_void()
+
+#get midpoints of countries in case it is handy later
+countries <- CoordinateCleaner::countryref
+  
+countries <- countries %>% select(name, iso3, centroid.lon, centroid.lat) %>% 
+  group_by( iso3) %>%
+  summarise(long = centroid.lon[[1]], lat = centroid.lat[[1]], name = name[[1]])
+
+countries <-  countries %>% mutate(name = toupper(name))
+
+#bit of renaming
+df <- df %>% mutate(country = case_when(country == "ENGLAND" ~"UK",
+                                     TRUE ~ as.character(country)))
+
+df$yearmon_start_date <- as.yearmon(df$start_month_year)
+
+world_map <- world_map %>% mutate(region = toupper(region))
+
+unique(df$country[!df$country %in% world_map$region])
+
+# join 'em up
+world_map <- world_map %>% left_join(df, by = c("region" = "country"))
+
+# add the continents
+world_map <- world_map %>% mutate(continent = countrycode::countrycode(sourcevar = region,
+                                                                       origin = "country.name",
+                                                                       destination = "continent"))
+
+#add study count
+world_map <- world_map %>% 
+  group_by(region) %>% 
+  mutate(study_count = length(na.omit(unique(covidence_id))),
+         min_yearmon_start_date = min(yearmon_start_date, na.rm = TRUE)) %>%
+  ungroup() %>%
+  group_by(continent) %>%
+  mutate(continent_study_count = length(na.omit(unique(covidence_id))))
+
+
+g_world <- map_bg +
+  
+  geom_polygon(data = world_map %>%
+                 filter(!is.na(start_month_year), !is.na(region)),
+               aes(x=long, y = lat, group = group, fill = as.factor(min_yearmon_start_date)))+ 
+  
+  geom_label_repel(data = world_map %>%
+                     filter(!is.na(start_month_year), !is.na(region))%>% 
+                     group_by(region, study_count) %>% 
+                     summarise(mid_long = mean(long), mid_lat = mean(lat)),
+                   aes(x=mid_long, y = mid_lat, label = study_count))+
+  
+  labs( fill = "Earliest study start date") +
+  scale_fill_manual(values = blues9[c(2,4,6,8)])+
+  theme(legend.position = "bottom")
+
+g_world
+
+world_map %>% select(continent, continent_study_count) %>% unique()
+
+world_map %>% select(region, study_count) %>% filter(study_count>0) %>% unique()
+```
+
+```{r map_euro}
+
+
+tmp <- world_map %>%
+  filter(!is.na(start_month_year), !is.na(region)) %>% 
+  filter(continent == "Europe")
+
+g_euro <- ggplot() +
+  geom_polygon(data = world_map %>% filter(continent == "Europe", region != "RUSSIA")  , 
+               aes(x=long, y = lat, group = group), 
+               fill="grey") +
+  coord_quickmap()+
+  theme_void() +
+  
+  geom_polygon(data = tmp ,
+               aes(x=long, y = lat, group = group, fill = as.factor(min_yearmon_start_date)))+ 
+  
+  geom_label_repel(data = tmp %>% 
+                     group_by(region, study_count) %>% 
+                     summarise(mid_long = mean(long), mid_lat = mean(lat)),
+                   aes(x=mid_long, y = mid_lat, label = study_count))+
+  
+  labs( fill = "Earliest study start date") +
+  scale_fill_manual(values = blues9[c(4,6,8)])
+
+g_euro
+
+print(paste0("Europe = ", paste(unique(world_map$covidence_id[world_map$continent == "Europe"]),
+                                collapse = ", ")
+             ) 
+      )
+
+```
+
+```{r map_china}
+df_china <-  df %>% filter(country == "CHINA", !is.na(city))
+
+df_china <- df_china %>% mutate(city = ifelse(city == "unclear; West China", NA, city))
+
+df_china <- df_china %>% mutate(city = strsplit(city, ", | & |and | Province"))
+
+china.cities <- world.cities %>% filter(country.etc == "China")
+
+china_studies <- NULL
+for(i in 1:length(unique(df_china$city))){
+  
+  for(j in 1:length(unique(df_china$city)[[i]])){
+    tmp <- data.frame(city = unique(df_china$city)[[i]][j],
+                      size_of_cohort = df_china$size_of_cohort[[i]],
+                      yearmon_start_date = df$yearmon_start_date[[i]])
+    
+    tmp <- tmp %>% left_join(china.cities, by = c("city" = "name"))
+    
+    china_studies <- china_studies %>% bind_rows(tmp)
+  }
+  
+}
+
+china_studies <- china_studies %>% mutate(ind = 1:nrow(china_studies))
+
+g_china <- ggplot() +
+  geom_polygon(data = world_map %>% filter( region == "CHINA")  , 
+               aes(x=long, y = lat, group = group), 
+               fill="grey") +
+  coord_quickmap()+
+  theme_void() +
+  
+  geom_point(data = china_studies,
+             aes(x = long, y = lat,
+                 size = size_of_cohort ),
+             colour = blues9[8], alpha = 0.5)+
+  labs(size = "Size of cohort") +
+  scale_size(range = c(2,10))+
+  theme(legend.position = "bottom")
+
+g_china
+
+print(paste0("China = ", paste(unique(world_map$covidence_id[world_map$region == "CHINA"]),
+                                collapse = ", ")
+             ) 
+      )
+
+```
+
+```{r map_all, fig.height=12}
+g_legend<-function(a.gplot){
+  tmp <- ggplot_gtable(ggplot_build(a.gplot))
+  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+  legend <- tmp$grobs[[leg]]
+  return(legend)}
+
+mylegend1 <- g_legend(g_world+theme(legend.text = element_text(size = 14),
+                                    legend.title = element_text(size = 14)))
+mylegend2 <- g_legend(g_china+theme(legend.text = element_text(size = 14),
+                                    legend.title = element_text(size = 14)))
+
+grid.arrange(arrangeGrob(g_world + ggtitle("A") + theme(legend.position="none"),
+                         g_china  + ggtitle("B") + theme(legend.position="none"),
+                         g_euro  + ggtitle("C") + theme(legend.position="none"),
+                         layout_matrix = rbind(c(1,1), c(2,3))),
+             arrangeGrob(mylegend1, mylegend2), 
+             nrow=2,heights=c(10, 2))
+
+gridExtra::grid.arrange(g_world + ggtitle("A"), g_china  + ggtitle("B"), g_euro  + ggtitle("C"), 
+                        layout_matrix = rbind(c(1,1), c(2,3)))
+
+print(paste0("Americas = ", paste(unique(world_map$covidence_id[world_map$continent == "Americas"]),
+                                  collapse = ", ")) )
+```
+
+
+```{r save_asymp}
+df %>%
+  filter(!is.na(asymptomatic)) %>%
+  filter(size_of_cohort>1, number_covid_positive>1) %>%
+  select( c(study,size_of_cohort, age_min, age_max, asymptomatic, cohort_type, number_covid_positive) ) %>%
+  saveRDS("asymp_df.rds")
+
+# save everything
+df %>%
+  saveRDS("all_df.rds")
+
+```
+
+

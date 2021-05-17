@@ -1,0 +1,59 @@
+# You must have a script that does something with the data.  This
+# will be a single string and the filename must exist when orderly is
+# run
+script: script.R
+
+packages:
+  - knitr
+  - tidyr
+  - dplyr
+  - readr
+  - janitor
+  - lubridate
+  - magrittr
+  - ggpubr
+  - tidyr
+  - readxl
+  - tools
+  - ggplot2
+  - metafor
+  - patchwork
+
+
+artefacts:
+    - report:
+        description: THe final html doc
+        filenames: child_metaanalysis.html
+    - staticgraph: 
+        description: Output figures
+        filenames: 
+          - figures/forest_asymp-1.png
+          - figures/forest_sev-1.png
+          - figures/funnel_asymp-1.png
+          - figures/funnel_sev-1.png
+          - figures/homemade_forest_asymp_age-1.png
+          - figures/homemade_forest_asymp-1.png
+          - figures/homemade_forest_sev-1.png
+          - figures/homemade_forest_sev_age-1.png
+          - figures/forest_asymp_subset-1.png
+          - figures/funnel_asymp_subset-1.png
+          - figures/homemade_forest_asymp_age_subset-1.png
+          - figures/homemade_forest_asymp_subset-1.png 
+          
+sources:
+  - R/homemade_forest.R
+
+resources: 
+  - child_metaanalysis.Rmd
+  - include_exclude.xlsx
+
+depends:
+  - child_incoming_litreview:
+      id: latest
+      use:
+        all_df.rds: all_df.rds
+
+
+
+requester: UK
+author: Katy

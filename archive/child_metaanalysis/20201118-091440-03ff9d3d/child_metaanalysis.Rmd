@@ -1,0 +1,336 @@
+---
+title: "Children meta-analysis"
+author: "Katy"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    fig_width: 7
+    fig_height: 5
+    fig_caption: true
+    highlight: "tango"
+    df_print: "kable"
+---
+
+
+```{r set up }
+
+ knitr::opts_chunk$set(echo = FALSE, fig.path = "figures/", 
+                       fig.ext = "png",
+                       fig.width = 10,
+                       fig.height = 5,
+                       dpi = 300)
+
+```
+
+```{r load data}
+df <- readRDS("all_df.rds")
+
+#add child binary indicator
+df %<>% mutate(child = ifelse(age_max<19, 1, 0))
+
+#filter to get rid of cases when #covid positve>asymp
+df %<>% filter(number_covid_positive>=asymptomatic)
+
+# only run for children
+df %<>% filter(child==1)
+
+# remove Hu as it was chosen to be only asymptomatic 
+df %<>% filter(covidence_id != 844)
+
+#add include_exclude
+inc <- readxl::read_xlsx("include_exclude.xlsx")
+inc %<>% janitor::clean_names()
+
+df %<>% left_join(inc %>% dplyr::select(covidence_id, action), by = "covidence_id")
+
+```
+
+# Asymptomatic from all studies
+
+```{r effect_sizes_meta}
+# effect sizes for asymptomatic
+ies_asymp <- escalc(xi=asymptomatic,
+                    ni=number_covid_positive,
+                    measure="PR",
+                    data=df) 
+
+```
+
+```{r forest_asymp,  fig.height=10}
+
+#overall proportion
+pes <- rma(yi,vi,data=ies_asymp,method="EB",weighted=TRUE)
+print(pes,digits=6);confint(pes)
+
+
+#forest plot
+
+ies.summary <- summary(ies_asymp,ni=ies_asymp$number_covid_positive)
+
+forest(pes, 
+       alim = c(0,1), 
+       xlim = c(-0.5,1.5), 
+       clim = c(0,1),
+       addcred = TRUE, 
+       refline = pes$beta,
+       slab = paste0(toupper(df$study),  
+                     " (", round(df$age_min,1), "-", round(df$age_max, 1), ")"),
+       xlab = "Proportion asymptomatic",
+       order = order(rowMeans(cbind(df$age_min, df$age_max)))
+       )
+```
+
+```{r homemade_forest_asymp, fig.height=10}
+rem <- data.frame(age_min = 18,
+                  age_max = 18,
+                  yi = as.numeric(pes$beta),
+                  ci.lb = as.numeric(pes$ci.lb),
+                  ci.ub = as.numeric(pes$ci.ub),
+                  study = "Random Effects Model",
+                  number_covid_positive = 1000)
+
+tmp <- ies.summary %>%
+  select(age_max, age_min, yi, ci.lb, ci.ub, study, number_covid_positive, covidence_id) %>%
+  bind_rows(rem) %>%
+  mutate(age_mean = round((age_min+age_max)/2 ,1) ) %>%
+  mutate(study_age = paste0(toupper(study), 
+                            " (", round(age_min,1), "-", round(age_max,1), ")", 
+                            " ", covidence_id)) %>%
+  mutate(rem = ifelse(study == "Random Effects Model", TRUE, FALSE)) 
+
+fp <- fp <- homemade_forest(tmp, "Proportion asymptomatic", 1)
+
+fp
+
+length(unique(ies.summary$covidence_id[!is.na(ies.summary$vi)]))
+
+print(unique(ies.summary$covidence_id[!is.na(ies.summary$vi)]))
+
+```
+
+```{r homemade_forest_asymp_age, fig.height=10}
+ap <- tmp %>%
+  ggplot()+
+  geom_segment(aes(x = age_min,
+                   xend = age_max,
+                   y = reorder(study_age, -age_mean),
+                   yend = reorder(study_age, -age_mean)),
+               size = 2,
+               colour = blues9[4])+
+  theme_minimal()+
+  labs(y = "", x = "Age range")+
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_text(color = blues9[6]),
+        axis.text.x = element_text(color = blues9[6])) +
+  scale_x_continuous(breaks = seq(0,18,3))
+
+fp + ap + plot_layout(widths = c(3,1))
+
+```
+
+
+
+```{r funnel_asymp}
+
+funnel(pes,
+       xlim = c(0,1),
+       xlab = "Proportion asymptomatic")
+
+```
+
+
+# Asymptomatic from subset of studies
+
+```{r effect_sizes_meta_subset}
+df_subset <- df %>% filter(action == "Include")
+
+# effect sizes for asymptomatic
+ies_asymp <- escalc(xi=asymptomatic,
+                    ni=number_covid_positive,
+                    measure="PR",
+                    data=df_subset) 
+
+```
+
+```{r forest_asymp_subset,  fig.height=10}
+
+#overall proportion
+pes <- rma(yi,vi,data=ies_asymp,method="EB",weighted=TRUE)
+print(pes,digits=6);confint(pes)
+
+
+#forest plot
+
+ies.summary <- summary(ies_asymp,ni=ies_asymp$number_covid_positive)
+
+forest(pes, 
+       alim = c(0,1), 
+       xlim = c(-0.5,1.5), 
+       clim = c(0,1),
+       addcred = TRUE, 
+       refline = pes$beta,
+       slab = paste0(toupper(df_subset$study),  
+                     " (", round(df_subset$age_min,1), "-", round(df_subset$age_max, 1), ")"),
+       xlab = "Proportion asymptomatic",
+       order = order(rowMeans(cbind(df_subset$age_min, df_subset$age_max)))
+       )
+```
+
+```{r homemade_forest_asymp_subset, fig.height=8}
+rem <- data.frame(age_min = 18,
+                  age_max = 18,
+                  yi = as.numeric(pes$beta),
+                  ci.lb = as.numeric(pes$ci.lb),
+                  ci.ub = as.numeric(pes$ci.ub),
+                  study = "Random Effects Model",
+                  number_covid_positive = 1000)
+
+tmp <- ies.summary %>%
+  select(age_max, age_min, yi, ci.lb, ci.ub, study, number_covid_positive, covidence_id) %>%
+  bind_rows(rem) %>%
+  mutate(age_mean = round((age_min+age_max)/2 ,1) ) %>%
+  mutate(study_age = paste0(toupper(study), 
+                            " (", round(age_min,1), "-", round(age_max,1), ")", 
+                            " ", covidence_id)) %>%
+  mutate(rem = ifelse(study == "Random Effects Model", TRUE, FALSE)) 
+
+fp <- fp <- homemade_forest(tmp, "Proportion asymptomatic", 1)
+
+fp
+
+length(unique(ies.summary$covidence_id[!is.na(ies.summary$vi)]))
+
+print(unique(ies.summary$covidence_id[!is.na(ies.summary$vi)]))
+
+```
+
+```{r homemade_forest_asymp_age_subset, fig.height=8}
+ap <- tmp %>%
+  ggplot()+
+  geom_segment(aes(x = age_min,
+                   xend = age_max,
+                   y = reorder(study_age, -age_mean),
+                   yend = reorder(study_age, -age_mean)),
+               size = 2,
+               colour = blues9[4])+
+  theme_minimal()+
+  labs(y = "", x = "Age range")+
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_text(color = blues9[6]),
+        axis.text.x = element_text(color = blues9[6])) +
+  scale_x_continuous(breaks = seq(0,18,3))
+
+fp + ap + plot_layout(widths = c(3,1))
+
+```
+
+
+
+```{r funnel_asymp_subset}
+
+funnel(pes,
+       xlim = c(0,1),
+       xlab = "Proportion asymptomatic")
+
+```
+
+
+
+
+# Severe from all studies
+
+
+```{r effect_sizes_meta_severe}
+# effect sizes for severe or critical
+ies_sev <- escalc(xi=severe_critical,
+                    ni=number_covid_positive,
+                    measure="PR",
+                    data=df) 
+
+```
+
+```{r forest_sev}
+
+#overall proportion
+pes <- rma(yi,vi,data=ies_sev,method="EB",weighted=TRUE)
+print(pes,digits=6);confint(pes)
+
+
+#forest plot
+
+ies.summary <- summary(ies_sev,ni=ies_sev$number_covid_positive)
+
+forest(pes, 
+       alim = c(0,1), 
+       xlim = c(-0.5,1.5), 
+       clim = c(0,1),
+       addcred = TRUE, 
+       refline = pes$beta,
+       slab = paste0(toupper(df$study),  " (", 
+                     round(df$age_min,1), "-", round(df$age_max, 1), ")"),
+       xlab = "Proportion severe or critical",
+       order = order(rowMeans(cbind(df$age_min, df$age_max)))
+       )
+```
+
+```{r homemade_forest_sev}
+rem <- data.frame(age_min = 18,
+                  age_max = 18,
+                  yi = as.numeric(pes$beta),
+                  ci.lb = as.numeric(pes$ci.lb),
+                  ci.ub = as.numeric(pes$ci.ub),
+                  study = "Random Effects Model",
+                  number_covid_positive = 1000)
+
+tmp <- ies.summary %>%
+  select(age_max, age_min, yi, ci.lb, ci.ub, study, number_covid_positive, covidence_id) %>%
+  bind_rows(rem) %>%
+  mutate(age_mean = round((age_min+age_max)/2 ,1) ) %>%
+  mutate(study_age = paste0(toupper(study), 
+                            " (", round(age_min,1), "-", round(age_max,1), ")", 
+                            " ", covidence_id)) %>%
+  mutate(rem = ifelse(study == "Random Effects Model", TRUE, FALSE)) 
+
+fp <- homemade_forest(tmp, "Proportion severe or critical", 0.4)
+
+fp 
+
+length(unique(ies.summary$covidence_id[!is.na(ies.summary$vi)]))
+
+print(unique(ies.summary$covidence_id[!is.na(ies.summary$vi)]))
+```
+
+```{r homemade_forest_sev_age}
+ap <- tmp %>%
+  filter(!is.na(yi)) %>%
+  ggplot()+
+  geom_segment(aes(x = age_min,
+                   xend = age_max,
+                   y = reorder(study_age, -age_mean),
+                   yend = reorder(study_age, -age_mean)),
+               size = 2,
+               colour = blues9[4])+
+  theme_minimal()+
+  labs(y = "", x = "Age range")+
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_text(color = blues9[6]),
+        axis.text.x = element_text(color = blues9[6])) +
+  scale_x_continuous(breaks = seq(0,18,3))
+
+fp + ap + plot_layout(widths = c(3,1))
+
+```
+
+```{r funnel_sev}
+
+funnel(pes,
+       xlim = c(0,1),
+       xlab = "Proportion severe or critical")
+
+```
