@@ -1,0 +1,64 @@
+# You must have a script that does something with the data.  This
+# will be a single string and the filename must exist when orderly is
+# run
+script: script.R
+
+
+artefacts:
+  - report:
+      description: Data from literature review on children
+      filenames:
+        - child_incoming_litreview.html
+
+
+  - staticgraph:
+      description: plots for report
+      filenames:
+        - figures/map-1.png
+        - figures/map_euro-1.png
+        - figures/map_china-1.png
+        - figures/map_all-1.png
+        - figures/map_all-2.png
+        - figures/susceptibility-1.png
+        
+  - data:
+      description: outputs
+      filenames:
+        - asymp_df.rds
+        - all_df.rds
+
+
+packages:
+  - knitr
+  - tidyr
+  - dplyr
+  - readr
+  - janitor
+  - lubridate
+  - magrittr
+  - ggpubr
+  - tidyr
+  - readxl
+  - tools
+  - ggplot2
+  - maps
+  - mapproj
+  - CoordinateCleaner
+  - zoo
+  - ggrepel
+  - countrycode
+  - gridExtra
+  - RColorBrewer
+
+
+#
+resources:
+  - child_incoming_litreview.Rmd
+  - data-files/covid_in_children_stats.xlsx
+  - data-files/covidence.csv
+  - data-files/QA.xlsx
+
+
+
+requester: UK
+author: Katy
